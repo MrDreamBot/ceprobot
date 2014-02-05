@@ -1,0 +1,214 @@
+package org.robot.cep
+ 
+import org.robot.cep.model.Robot;
+import org.robot.cep.model.Robot.State;
+import org.robot.cep.model.Direction;
+import org.robot.cep.model.MidRangeObstacleEvent;
+import org.robot.cep.model.MidRangeRecoveryEvent;
+import org.robot.cep.model.CloseRangeObstacleEvent;
+import org.robot.cep.model.CloseRangeRecoveryEvent;
+import org.robot.cep.model.RawObstacleEvent;
+
+declare MidRangeObstacleEvent
+	@role( event )
+	//@expires( 10s )
+end
+
+declare MidRangeRecoveryEvent
+	@role( event )
+end
+
+declare CloseRangeRecoveryEvent
+	@role( event )
+end
+
+declare CloseRangeObstacleEvent
+	@role( event )
+end
+
+declare RawObstacleEvent
+	@role( event )
+end
+
+rule "Event Conversion - close-range"
+	salience -10
+	when
+	    $robot : Robot( $myName : name )
+        $e1 : RawObstacleEvent(name == $myName, $direction : direction, distance <= Robot.CLOSE_RANGE) 
+           from entry-point TelemetryStream
+	then
+		System.out.println("converted RawObstacleEvent to CloseRangeObstacleEvent: (" + 
+			$myName + ":" + $direction + ":" + $e1.getDistance() + ")");
+		retract($e1)
+		entryPoints['TelemetryStream'].insert(new CloseRangeObstacleEvent($myName, $direction));
+
+		
+end
+
+rule "Event Conversion - mid-range"
+salience -20
+	when
+	    $robot : Robot( $myName : name )
+	    // close range conversion is checked first because of higher salience
+        $e1 : RawObstacleEvent(name == $myName, $direction : direction, distance <= Robot.MID_RANGE) 
+           from entry-point TelemetryStream
+	then
+		System.out.println("Converted RawObstacleEvent to MidRangeObstacleEvent: (" + 
+			$myName + ":" + $direction + ":" + $e1.getDistance() + ")");
+		retract($e1)
+		entryPoints['TelemetryStream'].insert(new MidRangeObstacleEvent($myName, $direction));
+
+		
+end
+
+rule "Event Conversion - delete"
+	when
+	    $robot : Robot( $myName : name )
+        $e1 : RawObstacleEvent(name == $myName, $direction : direction, distance > 150) 
+           from entry-point TelemetryStream
+	then
+		System.out.println("Deleted RawObstacleEvent: (" + $myName + ":" + $direction + ":" + $e1.getDistance() + ")");
+		retract($e1)
+		
+end
+
+rule "Mid-range Obstacle - turn left"
+    when
+        $robot : Robot( state == State.NORMAL, $myName : name )
+        $e1 : MidRangeObstacleEvent(name == $myName, direction == Direction.MIDDLE) 
+           from entry-point TelemetryStream
+        $e2 : MidRangeObstacleEvent(name == $myName, direction == Direction.RIGHT,
+           this coincides[100ms] $e1) from entry-point TelemetryStream
+        not (MidRangeObstacleEvent(name == $myName, direction == Direction.LEFT,
+           this coincides[100ms] $e1) from entry-point TelemetryStream)
+    then
+        $robot.control.turnLeft();
+        modify($robot) {setState(State.AVOID)};
+        retract($e1)
+        retract($e2)
+        entryPoints['TelemetryStream'].insert(new MidRangeRecoveryEvent($myName, State.AVOID));
+
+end
+
+rule "Mid-range Obstacle - turn right"
+    when
+        $robot : Robot( state == State.NORMAL, $myName : name )
+        $e1 : MidRangeObstacleEvent(name == $myName, direction == Direction.MIDDLE) 
+           from entry-point TelemetryStream
+        $e2 : MidRangeObstacleEvent(name == $myName, direction == Direction.LEFT,
+           this coincides[100ms] $e1) from entry-point TelemetryStream
+        not (MidRangeObstacleEvent(name == $myName, direction == Direction.RIGHT,
+           this coincides[100ms] $e1) from entry-point TelemetryStream)
+    then
+        $robot.control.turnRight();
+        modify($robot) { setState(State.AVOID)};
+        retract($e1)
+        retract($e2)
+        entryPoints['TelemetryStream'].insert(new MidRangeRecoveryEvent($myName, State.AVOID));
+
+end
+
+rule "Mid-range Obstacle - turn around"
+    salience 100
+    when
+        $robot : Robot( state == State.NORMAL, $myName : name )
+        $e1 : MidRangeObstacleEvent(name == $myName, direction == Direction.MIDDLE) 
+           from entry-point TelemetryStream
+        $e2 : MidRangeObstacleEvent(name == $myName, direction == Direction.RIGHT,
+           this coincides[100ms] $e1) from entry-point TelemetryStream
+        $e3 : MidRangeObstacleEvent(name == $myName, direction == Direction.LEFT,
+           this coincides[100ms] $e1) from entry-point TelemetryStream
+// The following are equivalent to the 3 conditions above
+//        $e1 : MidRangeObstacleEvent(name == $myName) 
+//           over window:time(100ms) from entry-point TelemetryStream
+//        $e2 : MidRangeObstacleEvent(name == $myName, direction != $e1.direction ) 
+//           over window:time(100ms) from entry-point TelemetryStream
+//        $e3 : MidRangeObstacleEvent(name == $myName, 
+//           (direction != $e1.direction && direction != $e2.direction))
+//           over window:time(100ms) from entry-point TelemetryStream
+    then
+        $robot.control.turnAround();
+        modify($robot) { setState(State.AVOID)};
+        retract($e1)
+        retract($e2)
+        retract($e3)
+        entryPoints['TelemetryStream'].insert(new MidRangeRecoveryEvent($myName, State.AVOID));
+end
+
+rule "Mid-range - Back to NORMAL"
+    when 
+        $robot : Robot( state == State.AVOID, $myName : name )
+        $e1 : MidRangeRecoveryEvent(name == $myName) from entry-point TelemetryStream
+        not (MidRangeObstacleEvent(name == $myName, this after[1s, 5s] $e1) from entry-point TelemetryStream)
+    then
+    	$robot.control.moveForward();
+        System.out.println($myName + ": (MidRangeRecoveryEvent) Resuming NORMAL state after: " + $robot.getState());
+        retract($e1)
+        modify($robot) {setState(State.NORMAL)};
+
+end
+
+rule "Close-range - Obstacle - spin left"
+    when
+        $robot : Robot( state == State.NORMAL, $myName : name )
+        $e1 : CloseRangeObstacleEvent(name == $myName, direction == Direction.MIDDLE) 
+           from entry-point TelemetryStream
+        $e2 : CloseRangeObstacleEvent(name == $myName, direction == Direction.RIGHT,
+           this coincides[100ms] $e1) from entry-point TelemetryStream
+        not (CloseRangeObstacleEvent(name == $myName, direction == Direction.LEFT,
+           this coincides[100ms] $e1) from entry-point TelemetryStream)
+    then
+        $robot.control.spinLeft();
+        modify($robot) {setState(State.ESCAPE)};
+        retract($e1)
+        retract($e2)
+        entryPoints['TelemetryStream'].insert(new CloseRangeRecoveryEvent($myName, State.ESCAPE));
+
+end
+
+rule "Close-range Obstacle - spin right"
+    when
+        $robot : Robot( state == State.NORMAL, $myName : name )
+        $e1 : CloseRangeObstacleEvent(name == $myName, direction == Direction.MIDDLE) 
+           from entry-point TelemetryStream
+        $e2 : CloseRangeObstacleEvent(name == $myName, direction == Direction.LEFT,
+           this coincides[100ms] $e1) from entry-point TelemetryStream
+        not (CloseRangeObstacleEvent(name == $myName, direction == Direction.RIGHT,
+           this coincides[100ms] $e1) from entry-point TelemetryStream)
+    then
+        $robot.control.spinRight();
+        modify($robot) { setState(State.ESCAPE)};
+        retract($e1)
+        retract($e2)
+        entryPoints['TelemetryStream'].insert(new CloseRangeRecoveryEvent($myName, State.ESCAPE));
+
+end
+
+rule "Close-range - Back to NORMAL"
+    when 
+        $robot : Robot( state == State.ESCAPE || state == State.DEADLOCK, $myName : name )
+        $e1 : CloseRangeRecoveryEvent(name == $myName) from entry-point TelemetryStream
+        not (CloseRangeObstacleEvent(name == $myName, this after[1s, 5s] $e1) from entry-point TelemetryStream)
+    then
+    	$robot.control.moveForward();
+        System.out.println($myName + ": (CloseRangeRecoveryEvent) Resuming NORMAL state after: " + $robot.getState());
+        retract($e1)
+        modify($robot) {setState(State.NORMAL)};
+
+end
+
+rule "Close-range - Deadlock Detected"
+	when
+		$robot : Robot( state == State.ESCAPE, $myName : name )
+		$count : Number( intValue > 5) 
+			from accumulate($event : CloseRangeRecoveryEvent(name == $myName) over window:time (10s) 
+			from entry-point TelemetryStream,
+			count($event))
+
+
+	then
+		System.out.println($myName + ": Close range recovery attempted " + $count + " times within 10 seconds");
+		modify($robot) {setState(State.DEADLOCK)};
+ 		$robot.control.performDeadlockManeuver();
+		
+end
