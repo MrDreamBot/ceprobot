@@ -48,7 +48,7 @@ public class CepRobotRuleTest {
 
 	@Before
 	public void setUp() throws Exception {
-        // load up the knowledge base
+        // create session
     	ksession = kcontainer.newKieSession("CepRobotKS");
     	clock = ksession.getSessionClock();
     	ksession.addEventListener( new DefaultAgendaEventListener() {
@@ -57,9 +57,8 @@ public class CepRobotRuleTest {
  		       System.out.println( "->\"" + event.getMatch().getRule().getName() + "\" Rule fired: " );
  		   }
     	});
-        //logger = KnowledgeRuntimeLoggerFactory.newFileLogger(ksession, "test");
-        
-        // go !
+
+        // insert initial fact
         robot = new Robot();
         robot.setName(ROBOT_NAME);
         robot.setState(State.NORMAL);
@@ -69,7 +68,6 @@ public class CepRobotRuleTest {
 
 	@After
 	public void tearDown() throws Exception {
-	    //if (logger != null) logger.close();
 	    ksession.dispose();   
 	}
 
@@ -79,9 +77,6 @@ public class CepRobotRuleTest {
 	    
 	    entry = ksession.getEntryPoint(STREAM_NAME);
 	    fireAllAndAssertRobotStateEquals(State.NORMAL);
-	    
-	    // delete unwanted RawObstacleEvent
-	    //insertRawObstacleEvent(ROBOT_NAME, Direction.LEFT, MID_RANGE * 2);
 	    
 	    // test avoid - turn right
 	    insertRawObstacleEvent(ROBOT_NAME, Direction.LEFT, Robot.MID_RANGE);
@@ -98,7 +93,9 @@ public class CepRobotRuleTest {
 	    insertRawObstacleEvent(ROBOT_NAME, Direction.MIDDLE, Robot.CLOSE_RANGE);
 	    clock.advanceTime(10, TimeUnit.MILLISECONDS);
 	    insertRawObstacleEvent(ROBOT_NAME, Direction.LEFT, Robot.CLOSE_RANGE);
-	    clock.advanceTime(100, TimeUnit.MILLISECONDS);
+	    clock.advanceTime(200, TimeUnit.MILLISECONDS);
+	    // the following event will not affect the back to NORMAL event
+	    insertRawObstacleEvent(ROBOT_NAME, Direction.RIGHT, Robot.CLOSE_RANGE);
 	    fireAllAndAssertRobotStateEquals(State.ESCAPE);
 	    
 	    // back to normal
@@ -201,6 +198,47 @@ public class CepRobotRuleTest {
 	}
 	
 	@Test
+	public void avoidAndRetryTest() {
+	    printSeparator();
+	    
+	    entry = ksession.getEntryPoint(STREAM_NAME);
+	    fireAllAndAssertRobotStateEquals(State.NORMAL);
+	    
+	    // test avoid - turn right
+	    insertMidRangeObstacleEvent(ROBOT_NAME, Direction.LEFT);
+	    clock.advanceTime(10, TimeUnit.MILLISECONDS);
+	    insertMidRangeObstacleEvent(ROBOT_NAME, Direction.MIDDLE);
+	    clock.advanceTime(10, TimeUnit.MILLISECONDS);
+	    fireAllAndAssertRobotStateEquals(State.AVOID);
+	    clock.advanceTime(3, TimeUnit.SECONDS);
+	    insertMidRangeObstacleEvent(ROBOT_NAME, Direction.MIDDLE);
+
+	    
+	    // retry
+	    clock.advanceTime(3, TimeUnit.SECONDS);
+	    fireAllAndAssertRobotStateEquals(State.RETRY);
+	    
+	    // test avoid - turn right
+	    insertMidRangeObstacleEvent(ROBOT_NAME, Direction.MIDDLE);
+	    clock.advanceTime(10, TimeUnit.MILLISECONDS);
+	    insertMidRangeObstacleEvent(ROBOT_NAME, Direction.LEFT);
+	    clock.advanceTime(100, TimeUnit.MILLISECONDS);
+	    fireAllAndAssertRobotStateEquals(State.AVOID);
+	    
+	    // back to normal
+	    clock.advanceTime(10, TimeUnit.SECONDS);
+	    fireAllAndAssertRobotStateEquals(State.NORMAL);
+	    
+	    // test avoid - no turn
+	    insertMidRangeObstacleEvent(ROBOT_NAME, Direction.RIGHT);
+	    clock.advanceTime(10, TimeUnit.MILLISECONDS);
+	    insertMidRangeObstacleEvent(ROBOT_NAME, Direction.LEFT);
+	    clock.advanceTime(100, TimeUnit.MILLISECONDS);
+	    fireAllAndAssertRobotStateEquals(State.NORMAL);
+	    
+	}
+
+	@Test
 	public void avoidAndTurnAroundTest() {
 	    printSeparator();
 	    
@@ -216,6 +254,29 @@ public class CepRobotRuleTest {
 	    clock.advanceTime(150, TimeUnit.MILLISECONDS);
 
 	    fireAllAndAssertRobotStateEquals(State.AVOID);
+	    
+	    // back to normal
+	    clock.advanceTime(10, TimeUnit.SECONDS);
+	    fireAllAndAssertRobotStateEquals(State.NORMAL);
+	    
+	}
+	
+	@Test
+	public void escapeAndTurnAroundTest() {
+	    printSeparator();
+	    
+	    entry = ksession.getEntryPoint(STREAM_NAME);
+	    fireAllAndAssertRobotStateEquals(State.NORMAL);
+	    
+	    // test avoid - turn around
+	    insertCloseRangeObstacleEvent(ROBOT_NAME, Direction.MIDDLE);
+//	    clock.advanceTime(10, TimeUnit.MILLISECONDS);
+	    insertCloseRangeObstacleEvent(ROBOT_NAME, Direction.RIGHT);
+//	    clock.advanceTime(10, TimeUnit.MILLISECONDS);
+	    insertCloseRangeObstacleEvent(ROBOT_NAME, Direction.LEFT);
+	    clock.advanceTime(150, TimeUnit.MILLISECONDS);
+
+	    fireAllAndAssertRobotStateEquals(State.ESCAPE);
 	    
 	    // back to normal
 	    clock.advanceTime(10, TimeUnit.SECONDS);
@@ -311,6 +372,46 @@ public class CepRobotRuleTest {
 	}
 	
 	@Test
+	public void escapeAndRetryTest() {
+		printSeparator();
+		
+	    entry = ksession.getEntryPoint(STREAM_NAME);
+	    fireAllAndAssertRobotStateEquals(State.NORMAL);
+	    
+	    // test avoid - turn right
+	    insertCloseRangeObstacleEvent(ROBOT_NAME, Direction.LEFT);
+	    clock.advanceTime(10, TimeUnit.MILLISECONDS);
+	    insertCloseRangeObstacleEvent(ROBOT_NAME, Direction.MIDDLE);
+	    clock.advanceTime(100, TimeUnit.MILLISECONDS);
+	    fireAllAndAssertRobotStateEquals(State.ESCAPE);
+	    clock.advanceTime(3, TimeUnit.SECONDS);
+	    insertCloseRangeObstacleEvent(ROBOT_NAME, Direction.MIDDLE);
+
+	    
+	    // retry
+	    clock.advanceTime(3, TimeUnit.SECONDS);
+	    fireAllAndAssertRobotStateEquals(State.RETRY);
+	    
+	    // test avoid - turn right
+	    insertCloseRangeObstacleEvent(ROBOT_NAME, Direction.MIDDLE);
+	    clock.advanceTime(10, TimeUnit.MILLISECONDS);
+	    insertCloseRangeObstacleEvent(ROBOT_NAME, Direction.LEFT);
+	    clock.advanceTime(100, TimeUnit.MILLISECONDS);
+	    fireAllAndAssertRobotStateEquals(State.ESCAPE);
+	    
+	    // back to normal
+	    clock.advanceTime(10, TimeUnit.SECONDS);
+	    fireAllAndAssertRobotStateEquals(State.NORMAL);
+	    
+	    // test avoid - no turn
+	    insertCloseRangeObstacleEvent(ROBOT_NAME, Direction.RIGHT);
+	    clock.advanceTime(10, TimeUnit.MILLISECONDS);
+	    insertCloseRangeObstacleEvent(ROBOT_NAME, Direction.LEFT);
+	    clock.advanceTime(100, TimeUnit.MILLISECONDS);
+	    fireAllAndAssertRobotStateEquals(State.NORMAL);
+	}
+	
+	@Test
 	public void deadlockTest() {
 		
 		printSeparator();
@@ -364,6 +465,7 @@ public class CepRobotRuleTest {
 	{
 		System.out.println("***********************************************");
 	}
+	
 	private void fireAllAndAssertRobotStateEquals(State state)
 	{
 		ksession.fireAllRules();

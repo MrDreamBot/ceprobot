@@ -9,6 +9,7 @@ public interface RobotControl {
 	public void spinRight();
 	public void moveForward();
 	public void moveBackward();
+	public void stop();
 	public void performDeadlockManeuver();
 
 }

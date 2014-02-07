@@ -5,7 +5,7 @@ public class Robot {
 	static public final int CLOSE_RANGE = 10;
 	
 	public enum State {
-		NORMAL, AVOID, ESCAPE, DEADLOCK
+		NORMAL, AVOID, ESCAPE, DEADLOCK, RETRY
 	}
 
     private String name;

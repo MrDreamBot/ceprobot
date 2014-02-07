@@ -57,4 +57,10 @@ public class DefaultRobotControl implements RobotControl {
 		System.out.println(name + ": Turning around");
 	}
 
+	@Override
+	public void stop() {
+		// TODO Auto-generated method stub
+		System.out.println(name + ": stop");
+	}
+
 }
